@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -66,4 +66,4 @@ class TaskUpdate(BaseModel):
     status: Optional[TaskStatus] = None
     due_at: Optional[datetime] = None
     priority: Optional[int] = Field(None, ge=1, le=5)
-    
+

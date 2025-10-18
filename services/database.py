@@ -11,7 +11,8 @@ class DatabaseManager:
     
     def __init__(self):
         self.connection = None
-        self.connect()
+        # Comment this out if you don't have MySQL set up yet
+        # self.connect()
     
     def connect(self):
         """Establish database connection"""
@@ -30,15 +31,11 @@ class DatabaseManager:
             raise
     
     def create_task(self, task: TaskCreate) -> Optional[int]:
-        """
-        Insert a new task into the database.
-        
-        Args:
-            task: TaskCreate object
+        """Insert a new task into the database"""
+        if not self.connection:
+            print("No database connection")
+            return None
             
-        Returns:
-            Task ID if successful, None otherwise
-        """
         query = """
         INSERT INTO tasks 
         (user_id, source_msg_id, title, status, due_at, priority, 
@@ -75,6 +72,9 @@ class DatabaseManager:
     
     def get_task(self, task_id: int) -> Optional[TaskResponse]:
         """Retrieve a single task by ID"""
+        if not self.connection:
+            return None
+            
         query = """
         SELECT task_id, user_id, source_msg_id, title, status, due_at, 
                priority, message_type, sender, subject, created_at, updated_at
@@ -101,17 +101,10 @@ class DatabaseManager:
         status: Optional[TaskStatus] = None,
         min_priority: Optional[int] = None
     ) -> List[TaskResponse]:
-        """
-        Retrieve tasks with optional filters.
-        
-        Args:
-            user_id: User ID to filter by
-            status: Optional status filter
-            min_priority: Optional minimum priority filter
+        """Retrieve tasks with optional filters"""
+        if not self.connection:
+            return []
             
-        Returns:
-            List of TaskResponse objects
-        """
         query = """
         SELECT task_id, user_id, source_msg_id, title, status, due_at,
                priority, message_type, sender, subject, created_at, updated_at
@@ -143,6 +136,9 @@ class DatabaseManager:
     
     def update_task(self, task_id: int, updates: TaskUpdate) -> bool:
         """Update a task with new values"""
+        if not self.connection:
+            return False
+            
         update_fields = []
         params = []
         
@@ -189,6 +185,9 @@ class DatabaseManager:
     
     def delete_task(self, task_id: int) -> bool:
         """Delete a task by ID"""
+        if not self.connection:
+            return False
+            
         query = "DELETE FROM tasks WHERE task_id = %s"
         
         try:

@@ -29,13 +29,6 @@ class TaskListGenerator:
     ) -> List[TaskCreate]:
         """
         Main method to convert LLM output into task creation objects.
-        
-        Args:
-            messages: List of message dictionaries from LLM/Prioritizer
-            user_id: ID of the user these tasks belong to
-            
-        Returns:
-            List of TaskCreate objects ready for database insertion
         """
         tasks = []
         

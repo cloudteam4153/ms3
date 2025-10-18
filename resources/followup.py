@@ -31,5 +31,3 @@ async def update_followup(followup_id: int):
 async def delete_followup(followup_id: int):
     """Delete a follow-up task - NOT IMPLEMENTED"""
     raise HTTPException(status_code=501, detail="Not Implemented")
-
-
