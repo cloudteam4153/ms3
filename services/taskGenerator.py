@@ -1,7 +1,7 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import re
-from models import IncomingMessage, TaskCreate, Classification
+from models import IncomingMessage, TaskCreate, Classification, TaskStatus, MessageType
 
 
 class TaskListGenerator:
@@ -18,8 +18,8 @@ class TaskListGenerator:
             'urgent': 0,
             'this week': 7,
             'next week': 14,
-            'eod': 0,  # end of day
-            'eow': 7,  # end of week
+            'eod': 0,
+            'eow': 7,
         }
     
     def generate_task_list(
@@ -40,27 +40,18 @@ class TaskListGenerator:
         tasks = []
         
         for msg_data in messages:
-            # Validate and parse incoming message
             try:
                 message = IncomingMessage(**msg_data)
             except Exception as e:
                 print(f"Invalid message format: {e}")
                 continue
             
-            # Only create tasks for todo and followup classifications
             if message.classification == Classification.NOISE:
                 continue
             
-            # Extract due date from task description
             due_at = self._extract_due_date(message.task)
+            clean_title = self._clean_task_title(message.task, message.classification)
             
-            # Clean and format task title
-            clean_title = self._clean_task_title(
-                message.task, 
-                message.classification
-            )
-            
-            # Create task object
             task = TaskCreate(
                 user_id=user_id,
                 source_msg_id=message.id,
@@ -78,22 +69,13 @@ class TaskListGenerator:
         return tasks
     
     def _extract_due_date(self, task_text: str) -> Optional[datetime]:
-        """
-        Extract due date from task text based on keywords.
-        
-        Args:
-            task_text: The task description
-            
-        Returns:
-            Datetime object if due date found, None otherwise
-        """
+        """Extract due date from task text based on keywords"""
         task_lower = task_text.lower()
         
         for keyword, days_offset in self.due_date_keywords.items():
             if keyword in task_lower:
                 return datetime.now() + timedelta(days=days_offset)
         
-        # Try to extract explicit dates (basic regex for MM/DD format)
         date_pattern = r'\b(\d{1,2})/(\d{1,2})\b'
         match = re.search(date_pattern, task_text)
         if match:
@@ -102,7 +84,6 @@ class TaskListGenerator:
                 year = datetime.now().year
                 due_date = datetime(year, month, day)
                 
-                # If date is in the past, assume next year
                 if due_date < datetime.now():
                     due_date = datetime(year + 1, month, day)
                 
@@ -112,22 +93,8 @@ class TaskListGenerator:
         
         return None
     
-    def _clean_task_title(
-        self, 
-        task_text: str, 
-        classification: Classification
-    ) -> str:
-        """
-        Clean and format task title for better readability.
-        
-        Args:
-            task_text: Raw task description from LLM
-            classification: Task classification type
-            
-        Returns:
-            Cleaned task title
-        """
-        # Remove common prefixes
+    def _clean_task_title(self, task_text: str, classification: Classification) -> str:
+        """Clean and format task title for better readability"""
         prefixes_to_remove = [
             'task:', 'todo:', 'action item:', 
             'follow up:', 'followup:', 'reply to'
@@ -138,42 +105,15 @@ class TaskListGenerator:
             if clean_text.lower().startswith(prefix):
                 clean_text = clean_text[len(prefix):].strip()
         
-        # Add classification prefix for followups
         if classification == Classification.FOLLOWUP:
             if not clean_text.lower().startswith('reply'):
                 clean_text = f"Reply: {clean_text}"
         
-        # Capitalize first letter
         if clean_text:
             clean_text = clean_text[0].upper() + clean_text[1:]
         
-        # Truncate if too long (max 200 chars)
         if len(clean_text) > 200:
             clean_text = clean_text[:197] + "..."
         
         return clean_text
-    
-    def generate_task_summary(self, tasks: List[TaskCreate]) -> Dict[str, Any]:
-        """
-        Generate summary statistics for the task list.
-        
-        Args:
-            tasks: List of TaskCreate objects
-            
-        Returns:
-            Dictionary with summary statistics
-        """
-        return {
-            'total_tasks': len(tasks),
-            'by_priority': {
-                priority: len([t for t in tasks if t.priority == priority])
-                for priority in range(1, 6)
-            },
-            'by_type': {
-                'email': len([t for t in tasks if t.message_type == MessageType.EMAIL]),
-                'slack': len([t for t in tasks if t.message_type == MessageType.SLACK])
-            },
-            'with_due_dates': len([t for t in tasks if t.due_at is not None]),
-            'urgent': len([t for t in tasks if t.priority >= 4])
-        }
     
