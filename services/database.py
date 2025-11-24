@@ -1,9 +1,12 @@
 import os
-from typing import Optional, List
-from datetime import datetime
+from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import Error
-from models import TaskCreate, TaskResponse, TaskUpdate, TaskStatus
+from typing import List, Optional
+from models import TaskCreate, TaskUpdate, TaskResponse, TaskStatus
+from datetime import datetime
+
+load_dotenv()
 
 
 class DatabaseManager:
@@ -11,9 +14,8 @@ class DatabaseManager:
     
     def __init__(self):
         self.connection = None
-        # Comment this out if you don't have MySQL set up yet
-        # self.connect()
-    
+        self.connect()
+
     def connect(self):
         """Establish database connection"""
         try:
@@ -28,48 +30,66 @@ class DatabaseManager:
                 print("Successfully connected to MySQL database")
         except Error as e:
             print(f"Error connecting to MySQL: {e}")
-            raise
+            self.connection = None
+
     
-    def create_task(self, task: TaskCreate) -> Optional[int]:
-        """Insert a new task into the database"""
+    def create_task(self, task):
+        """Insert a new task into the tasks table and return its ID."""
         if not self.connection:
-            print("No database connection")
             return None
-            
-        query = """
-        INSERT INTO tasks 
-        (user_id, source_msg_id, title, status, due_at, priority, 
-         message_type, sender, subject, created_at, updated_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        now = datetime.now()
-        values = (
-            task.user_id,
-            task.source_msg_id,
-            task.title,
-            task.status.value,
-            task.due_at,
-            task.priority,
-            task.message_type.value,
-            task.sender,
-            task.subject,
-            now,
-            now
-        )
-        
+
         try:
+            query = """
+                INSERT INTO tasks (
+                    user_id,
+                    source_msg_id,
+                    title,
+                    status,
+                    due_at,
+                    priority,
+                    message_type,
+                    sender,
+                    subject
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+
+                        # If status is an enum, convert to its value
+            status_value = (
+                task.status.value if hasattr(task.status, "value") else task.status
+            )
+
+            # If message_type is an enum, convert to its value
+            message_type_value = (
+                task.message_type.value
+                if hasattr(task.message_type, "value")
+                else task.message_type
+            )
+
+            values = (
+                task.user_id,
+                task.source_msg_id,
+                task.title,
+                status_value or "open",
+                task.due_at,
+                task.priority or 1,
+                message_type_value or "email",
+                task.sender,
+                task.subject,
+            )
+
             cursor = self.connection.cursor()
             cursor.execute(query, values)
             self.connection.commit()
             task_id = cursor.lastrowid
             cursor.close()
             return task_id
+
         except Error as e:
             print(f"Error creating task: {e}")
-            self.connection.rollback()
             return None
-    
+
+
     def get_task(self, task_id: int) -> Optional[TaskResponse]:
         """Retrieve a single task by ID"""
         if not self.connection:
@@ -96,44 +116,70 @@ class DatabaseManager:
             return None
     
     def get_tasks(
-        self, 
-        user_id: int, 
+        self,
+        user_id: int,
         status: Optional[TaskStatus] = None,
-        min_priority: Optional[int] = None
-    ) -> List[TaskResponse]:
-        """Retrieve tasks with optional filters"""
+        min_priority: Optional[int] = None,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> tuple[List[TaskResponse], int]:
+        """Retrieve tasks with optional filters + pagination"""
         if not self.connection:
-            return []
-            
-        query = """
+            return [], 0
+
+        # Base WHERE clause
+        where_clause = "WHERE user_id = %s"
+        params = [user_id]
+
+        if status:
+            where_clause += " AND status = %s"
+            params.append(status.value)
+
+        if min_priority:
+            where_clause += " AND priority >= %s"
+            params.append(min_priority)
+
+        # 1) Get total count (for pagination metadata)
+        count_query = f"""
+        SELECT COUNT(*) AS total
+        FROM tasks
+        {where_clause}
+        """
+
+        try:
+            cursor = self.connection.cursor(dictionary=True)
+            cursor.execute(count_query, params)
+            count_row = cursor.fetchone()
+            total = count_row["total"] if count_row else 0
+            cursor.close()
+        except Error as e:
+            print(f"Error counting tasks: {e}")
+            return [], 0
+
+        # 2) Get the actual page of results
+        query = f"""
         SELECT task_id, user_id, source_msg_id, title, status, due_at,
                priority, message_type, sender, subject, created_at, updated_at
         FROM tasks
-        WHERE user_id = %s
+        {where_clause}
+        ORDER BY priority DESC, due_at ASC
+        LIMIT %s OFFSET %s
         """
-        params = [user_id]
-        
-        if status:
-            query += " AND status = %s"
-            params.append(status.value)
-        
-        if min_priority:
-            query += " AND priority >= %s"
-            params.append(min_priority)
-        
-        query += " ORDER BY priority DESC, due_at ASC"
-        
+
+        page_params = params + [limit, offset]
+
         try:
             cursor = self.connection.cursor(dictionary=True)
-            cursor.execute(query, params)
+            cursor.execute(query, page_params)
             results = cursor.fetchall()
             cursor.close()
-            
-            return [TaskResponse(**row) for row in results]
+
+            tasks = [TaskResponse(**row) for row in results]
+            return tasks, total
         except Error as e:
             print(f"Error fetching tasks: {e}")
-            return []
-    
+            return [], total
+
     def update_task(self, task_id: int, updates: TaskUpdate) -> bool:
         """Update a task with new values"""
         if not self.connection:

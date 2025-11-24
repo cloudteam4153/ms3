@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from models import TaskCreate, TaskResponse, TaskUpdate, TaskStatus
@@ -10,26 +10,41 @@ task_generator = TaskListGenerator()
 
 
 @router.post("", response_model=TaskResponse, status_code=201)
-async def create_task(task: TaskCreate):
+async def create_task(task: TaskCreate, response: Response):
     """Create a new task"""
     task_id = db.create_task(task)
-    
+
     if task_id is None:
-        raise HTTPException(status_code=500, detail="Failed to create task")
-    
+        raise HTTPException(status_code=500, detail="Failed to create task (DB error, check logs)")
+
     created_task = db.get_task(task_id)
+    if created_task is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch created task")
+
+    # HTTP 201 best practice: send Location header
+    response.headers["Location"] = f"/tasks/{task_id}"
     return created_task
 
 
-@router.get("/{task_id}", response_model=TaskResponse)
+@router.get("/{task_id}")
 async def get_task(task_id: int):
-    """Get a specific task by ID"""
+    """
+    Get a specific task by ID + linked data
+    """
     task = db.get_task(task_id)
-    
+
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    
-    return task
+
+    return {
+        **task.model_dump(),
+        "links": {
+            "self": f"/tasks/{task.task_id}",
+            "owner": f"/users/{task.user_id}",
+            "followup": f"/followup?task_id={task.task_id}",
+            "todo": f"/todo?task_id={task.task_id}",
+        },
+    }
 
 
 @router.get("", response_model=List[TaskResponse])
