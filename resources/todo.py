@@ -2,10 +2,11 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from models import TodoCreate, TodoResponse, TodoUpdate, TaskStatus
-from services import DatabaseManager
+from services import DatabaseManager, IntegrationsClient
 
 router = APIRouter(prefix="/todo", tags=["todo"])
 db = DatabaseManager()
+integrations_client = IntegrationsClient()
 
 
 @router.post("", response_model=TodoResponse, status_code=201)
@@ -42,7 +43,33 @@ async def get_todo(todo_id: int):
             "owner": f"/users/{todo.user_id}",
             "task": f"/tasks?source_msg_id={todo.source_msg_id}",
             "followup": f"/followup?source_msg_id={todo.source_msg_id}",
+            "message": f"/todo/{todo.todo_id}/message",
         },
+    }
+
+
+@router.get("/{todo_id}/message")
+async def get_todo_message(todo_id: int):
+    """
+    Get the full message content associated with this todo from integrations service
+    """
+    todo = db.get_todo(todo_id)
+
+    if todo is None:
+        raise HTTPException(status_code=404, detail="Todo not found")
+
+    message = await integrations_client.get_message(todo.source_msg_id)
+
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message {todo.source_msg_id} not found in integrations service"
+        )
+
+    return {
+        "todo_id": todo.todo_id,
+        "source_msg_id": todo.source_msg_id,
+        "message": message
     }
 
 

@@ -2,11 +2,12 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from models import TaskCreate, TaskResponse, TaskUpdate, TaskStatus
-from services import DatabaseManager, TaskListGenerator
+from services import DatabaseManager, TaskListGenerator, IntegrationsClient
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 db = DatabaseManager()
 task_generator = TaskListGenerator()
+integrations_client = IntegrationsClient()
 
 
 @router.post("", response_model=TaskResponse, status_code=201)
@@ -43,7 +44,33 @@ async def get_task(task_id: int):
             "owner": f"/users/{task.user_id}",
             "followup": f"/followup?task_id={task.task_id}",
             "todo": f"/todo?task_id={task.task_id}",
+            "message": f"/tasks/{task.task_id}/message",
         },
+    }
+
+
+@router.get("/{task_id}/message")
+async def get_task_message(task_id: int):
+    """
+    Get the full message content associated with this task from integrations service
+    """
+    task = db.get_task(task_id)
+
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    message = await integrations_client.get_message(task.source_msg_id)
+
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message {task.source_msg_id} not found in integrations service"
+        )
+
+    return {
+        "task_id": task.task_id,
+        "source_msg_id": task.source_msg_id,
+        "message": message
     }
 
 

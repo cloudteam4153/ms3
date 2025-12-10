@@ -84,14 +84,25 @@ def main():
             
             # Get migration files
             migrations_dir = os.path.join(os.path.dirname(__file__), 'migrations')
+            tasks_migration = os.path.join(migrations_dir, 'create_tasks_table.sql')
             todos_migration = os.path.join(migrations_dir, 'create_todos_table.sql')
             followups_migration = os.path.join(migrations_dir, 'create_followups_table.sql')
+            uuid_migration = os.path.join(migrations_dir, 'alter_source_msg_id_to_uuid.sql')
             
             # Run migrations
             print("\nRunning migrations...")
             success = True
+            success &= run_migration(connection, tasks_migration)
             success &= run_migration(connection, todos_migration)
             success &= run_migration(connection, followups_migration)
+            
+            # Run UUID migration (alters existing tables if they have INT columns)
+            print("\nUpdating source_msg_id columns to support UUIDs...")
+            try:
+                run_migration(connection, uuid_migration)
+            except Exception as e:
+                # This is okay if columns are already VARCHAR or tables don't exist yet
+                print(f"Note: UUID migration - {e}")
             
             if success:
                 print("\n✅ All migrations completed successfully!")

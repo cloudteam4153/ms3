@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS todos (
     todo_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    source_msg_id INT NOT NULL COMMENT 'Associates todo with specific message',
+    source_msg_id VARCHAR(36) NOT NULL COMMENT 'Associates todo with specific message (UUID)',
     title VARCHAR(255) NOT NULL,
     status ENUM('open', 'done') DEFAULT 'open',
     due_at DATETIME NULL,

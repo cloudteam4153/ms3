@@ -2,10 +2,11 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from typing import List, Optional
 from models import FollowupCreate, FollowupResponse, FollowupUpdate, TaskStatus
-from services import DatabaseManager
+from services import DatabaseManager, IntegrationsClient
 
 router = APIRouter(prefix="/followup", tags=["followup"])
 db = DatabaseManager()
+integrations_client = IntegrationsClient()
 
 
 @router.post("", response_model=FollowupResponse, status_code=201)
@@ -42,7 +43,33 @@ async def get_followup(followup_id: int):
             "owner": f"/users/{followup.user_id}",
             "task": f"/tasks?source_msg_id={followup.source_msg_id}",
             "todo": f"/todo?source_msg_id={followup.source_msg_id}",
+            "message": f"/followup/{followup.followup_id}/message",
         },
+    }
+
+
+@router.get("/{followup_id}/message")
+async def get_followup_message(followup_id: int):
+    """
+    Get the full message content associated with this followup from integrations service
+    """
+    followup = db.get_followup(followup_id)
+
+    if followup is None:
+        raise HTTPException(status_code=404, detail="Followup not found")
+
+    message = await integrations_client.get_message(followup.source_msg_id)
+
+    if message is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Message {followup.source_msg_id} not found in integrations service"
+        )
+
+    return {
+        "followup_id": followup.followup_id,
+        "source_msg_id": followup.source_msg_id,
+        "message": message
     }
 
 

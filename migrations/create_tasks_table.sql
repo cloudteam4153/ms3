@@ -1,10 +1,10 @@
--- Migration: Create followups table
--- This table stores follow-up items associated with messages from email/slack
+-- Migration: Create tasks table
+-- This table stores task items associated with messages from email/slack
 
-CREATE TABLE IF NOT EXISTS followups (
-    followup_id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS tasks (
+    task_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    source_msg_id VARCHAR(36) NOT NULL COMMENT 'Associates followup with specific message (UUID)',
+    source_msg_id VARCHAR(36) NOT NULL COMMENT 'Associates task with specific message (UUID)',
     title VARCHAR(255) NOT NULL,
     status ENUM('open', 'done') DEFAULT 'open',
     due_at DATETIME NULL,

@@ -22,7 +22,7 @@ class Classification(str, Enum):
 
 class IncomingMessage(BaseModel):
     """Input format from LLM/Prioritizer service"""
-    id: int
+    id: str  # UUID from integrations service
     type: MessageType
     subject: Optional[str] = None
     sender: str
@@ -34,7 +34,7 @@ class IncomingMessage(BaseModel):
 class TaskCreate(BaseModel):
     """Schema for creating a new task"""
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus = TaskStatus.OPEN
     due_at: Optional[datetime] = None
@@ -48,7 +48,7 @@ class TaskResponse(BaseModel):
     """Schema for task response"""
     task_id: int
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus
     due_at: Optional[datetime]
@@ -71,7 +71,7 @@ class TaskUpdate(BaseModel):
 class TodoCreate(BaseModel):
     """Schema for creating a new todo"""
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus = TaskStatus.OPEN
     due_at: Optional[datetime] = None
@@ -85,7 +85,7 @@ class TodoResponse(BaseModel):
     """Schema for todo response"""
     todo_id: int
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus
     due_at: Optional[datetime]
@@ -108,7 +108,7 @@ class TodoUpdate(BaseModel):
 class FollowupCreate(BaseModel):
     """Schema for creating a new followup"""
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus = TaskStatus.OPEN
     due_at: Optional[datetime] = None
@@ -122,7 +122,7 @@ class FollowupResponse(BaseModel):
     """Schema for followup response"""
     followup_id: int
     user_id: int
-    source_msg_id: int
+    source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus
     due_at: Optional[datetime]
