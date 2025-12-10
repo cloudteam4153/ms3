@@ -54,7 +54,7 @@ async def get_tasks(
     priority: Optional[int] = Query(None, ge=1, le=5, description="Minimum priority")
 ):
     """Get tasks with optional filters"""
-    tasks = db.get_tasks(user_id, status, priority)
+    tasks, total = db.get_tasks(user_id, status, priority)
     return tasks
 
 

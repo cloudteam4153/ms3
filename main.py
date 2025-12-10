@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from resources import tasks_router, todo_router, followup_router
+from resources import tasks_router, todo_router, followup_router, classifications_router
 import uvicorn
 
 app = FastAPI(
@@ -12,6 +12,7 @@ app = FastAPI(
 app.include_router(tasks_router)
 app.include_router(todo_router)
 app.include_router(followup_router)
+app.include_router(classifications_router)
 
 
 @app.get("/health")

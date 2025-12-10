@@ -24,10 +24,27 @@ def run_migration(connection, sql_file):
         sql_content = read_sql_file(sql_file)
         cursor = connection.cursor()
         
-        # Execute each statement (split by semicolon)
-        for statement in sql_content.split(';'):
-            statement = statement.strip()
-            if statement and not statement.startswith('--'):
+        # Remove comments and split by semicolon, but keep multi-line statements together
+        # First, remove single-line comments
+        lines = sql_content.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            # Skip comment-only lines
+            stripped = line.strip()
+            if stripped.startswith('--') or not stripped:
+                continue
+            # Remove inline comments (everything after --)
+            if '--' in line:
+                line = line[:line.index('--')]
+            cleaned_lines.append(line)
+        
+        # Join and split by semicolon
+        cleaned_sql = '\n'.join(cleaned_lines)
+        statements = [s.strip() for s in cleaned_sql.split(';') if s.strip()]
+        
+        # Execute each statement
+        for statement in statements:
+            if statement:
                 cursor.execute(statement)
         
         connection.commit()
@@ -82,12 +99,20 @@ def main():
                 print("\n❌ Some migrations failed. Check errors above.")
             
             # Verify tables were created
-            cursor = connection.cursor()
+            cursor = connection.cursor(dictionary=True)
             cursor.execute("SHOW TABLES")
-            tables = [table[0] for table in cursor.fetchall()]
+            results = cursor.fetchall()
+            # Handle both tuple and dict results
+            if results and isinstance(results[0], dict):
+                tables = [list(row.values())[0] for row in results]
+            else:
+                tables = [row[0] for row in results]
             cursor.close()
             
-            print(f"\nTables in database: {', '.join(tables)}")
+            if tables:
+                print(f"\nTables in database: {', '.join(tables)}")
+            else:
+                print("\n⚠️  No tables found in database. Migrations may have failed silently.")
             
             connection.close()
             
