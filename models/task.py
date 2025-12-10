@@ -67,3 +67,77 @@ class TaskUpdate(BaseModel):
     due_at: Optional[datetime] = None
     priority: Optional[int] = Field(None, ge=1, le=5)
 
+
+class TodoCreate(BaseModel):
+    """Schema for creating a new todo"""
+    user_id: int
+    source_msg_id: int
+    title: str
+    status: TaskStatus = TaskStatus.OPEN
+    due_at: Optional[datetime] = None
+    priority: int = Field(ge=1, le=5)
+    message_type: MessageType
+    sender: str
+    subject: Optional[str] = None
+
+
+class TodoResponse(BaseModel):
+    """Schema for todo response"""
+    todo_id: int
+    user_id: int
+    source_msg_id: int
+    title: str
+    status: TaskStatus
+    due_at: Optional[datetime]
+    priority: int
+    message_type: MessageType
+    sender: str
+    subject: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class TodoUpdate(BaseModel):
+    """Schema for updating a todo"""
+    title: Optional[str] = None
+    status: Optional[TaskStatus] = None
+    due_at: Optional[datetime] = None
+    priority: Optional[int] = Field(None, ge=1, le=5)
+
+
+class FollowupCreate(BaseModel):
+    """Schema for creating a new followup"""
+    user_id: int
+    source_msg_id: int
+    title: str
+    status: TaskStatus = TaskStatus.OPEN
+    due_at: Optional[datetime] = None
+    priority: int = Field(ge=1, le=5)
+    message_type: MessageType
+    sender: str
+    subject: Optional[str] = None
+
+
+class FollowupResponse(BaseModel):
+    """Schema for followup response"""
+    followup_id: int
+    user_id: int
+    source_msg_id: int
+    title: str
+    status: TaskStatus
+    due_at: Optional[datetime]
+    priority: int
+    message_type: MessageType
+    sender: str
+    subject: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class FollowupUpdate(BaseModel):
+    """Schema for updating a followup"""
+    title: Optional[str] = None
+    status: Optional[TaskStatus] = None
+    due_at: Optional[datetime] = None
+    priority: Optional[int] = Field(None, ge=1, le=5)
+

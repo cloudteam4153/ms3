@@ -5,7 +5,13 @@ from .task import (
     IncomingMessage,
     TaskCreate,
     TaskResponse,
-    TaskUpdate
+    TaskUpdate,
+    TodoCreate,
+    TodoResponse,
+    TodoUpdate,
+    FollowupCreate,
+    FollowupResponse,
+    FollowupUpdate
 )
 
 __all__ = [
@@ -15,5 +21,11 @@ __all__ = [
     "IncomingMessage",
     "TaskCreate",
     "TaskResponse",
-    "TaskUpdate"
+    "TaskUpdate",
+    "TodoCreate",
+    "TodoResponse",
+    "TodoUpdate",
+    "FollowupCreate",
+    "FollowupResponse",
+    "FollowupUpdate"
 ]
