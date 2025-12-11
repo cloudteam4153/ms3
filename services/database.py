@@ -1,8 +1,9 @@
 import os
 from dotenv import load_dotenv
 import mysql.connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 from typing import List, Optional
+import time
 from models import (
     TaskCreate, TaskUpdate, TaskResponse, TaskStatus,
     TodoCreate, TodoUpdate, TodoResponse,
@@ -14,49 +15,124 @@ load_dotenv()
 
 
 class DatabaseManager:
-    """Handles all database operations for the Actions Service"""
+    """Handles all database operations for the Actions Service with connection pooling"""
+    
+    # Class-level connection pool (shared across instances)
+    _pool = None
+    _pool_config = None
     
     def __init__(self):
-        self.connection = None
-        self.connect()
-
-    def connect(self):
-        """Establish database connection (supports Cloud SQL and local MySQL)"""
+        self.max_retries = 3
+        self.retry_delay = 2  # seconds
+        self._initialize_pool()
+    
+    def _get_pool_config(self):
+        """Get connection pool configuration based on environment"""
+        if self._pool_config:
+            return self._pool_config
+        
+        # Check if using Cloud SQL (Unix socket connection)
+        cloud_sql_connection_name = os.getenv('CLOUD_SQL_CONNECTION_NAME')
+        unix_socket_path = os.getenv('DB_UNIX_SOCKET')
+        
+        config = {
+            'database': os.getenv('DB_NAME', 'unified_inbox'),
+            'user': os.getenv('DB_USER', 'root'),
+            'password': os.getenv('DB_PASSWORD', ''),
+            'autocommit': False,
+            'pool_name': 'actions_service_pool',
+            'pool_size': int(os.getenv('DB_POOL_SIZE', 5)),  # Default 5 connections
+            'pool_reset_session': True,
+        }
+        
+        if cloud_sql_connection_name and unix_socket_path:
+            # Cloud SQL via Unix socket (when running on GCP/Cloud Run)
+            config['unix_socket'] = unix_socket_path
+            config['connect_timeout'] = 10  # Timeout for Unix socket connections too
+            print(f"Configuring connection pool for Cloud SQL via Unix socket: {cloud_sql_connection_name}")
+        else:
+            # Standard TCP connection (local or Cloud SQL via TCP)
+            config['host'] = os.getenv('DB_HOST', 'localhost')
+            config['port'] = int(os.getenv('DB_PORT', 3306))
+            config['connect_timeout'] = 10
+            print(f"Configuring connection pool for MySQL at {config['host']}:{config['port']}")
+        
+        self._pool_config = config
+        return config
+    
+    def _initialize_pool(self, retry_count=0):
+        """Initialize connection pool with retry logic"""
         try:
-            # Check if using Cloud SQL (Unix socket connection)
-            cloud_sql_connection_name = os.getenv('CLOUD_SQL_CONNECTION_NAME')
-            unix_socket_path = os.getenv('DB_UNIX_SOCKET')
-            
-            if cloud_sql_connection_name and unix_socket_path:
-                # Cloud SQL via Unix socket (when running on GCP)
-                self.connection = mysql.connector.connect(
-                    unix_socket=unix_socket_path,
-                    database=os.getenv('DB_NAME', 'unified_inbox'),
-                    user=os.getenv('DB_USER', 'root'),
-                    password=os.getenv('DB_PASSWORD', '')
-                )
-                if self.connection.is_connected():
-                    print(f"Successfully connected to Cloud SQL via Unix socket: {cloud_sql_connection_name}")
-            else:
-                # Standard TCP connection (local or Cloud SQL via TCP)
-                self.connection = mysql.connector.connect(
-                    host=os.getenv('DB_HOST', 'localhost'),
-                    database=os.getenv('DB_NAME', 'unified_inbox'),
-                    user=os.getenv('DB_USER', 'root'),
-                    password=os.getenv('DB_PASSWORD', ''),
-                    port=int(os.getenv('DB_PORT', 3306))
-                )
-                if self.connection.is_connected():
-                    db_host = os.getenv('DB_HOST', 'localhost')
-                    print(f"Successfully connected to MySQL database at {db_host}")
+            if self._pool is None:
+                config = self._get_pool_config()
+                self._pool = mysql.connector.pooling.MySQLConnectionPool(**config)
+                print(f"Connection pool initialized with {config['pool_size']} connections")
         except Error as e:
-            print(f"Error connecting to MySQL: {e}")
-            self.connection = None
+            print(f"Error initializing connection pool (attempt {retry_count + 1}/{self.max_retries}): {e}")
+            
+            # Retry logic for production
+            if retry_count < self.max_retries - 1:
+                print(f"Retrying pool initialization in {self.retry_delay} seconds...")
+                time.sleep(self.retry_delay)
+                return self._initialize_pool(retry_count + 1)
+            else:
+                print("Max retries reached. Connection pool initialization failed.")
+                self._pool = None
+    
+    def _get_connection(self):
+        """Get a connection from the pool"""
+        if self._pool is None:
+            self._initialize_pool()
+        
+        if self._pool is None:
+            return None
+        
+        try:
+            connection = self._pool.get_connection()
+            if connection.is_connected():
+                return connection
+            else:
+                # Connection is not valid, try to get another one
+                return self._pool.get_connection()
+        except Error as e:
+            print(f"Error getting connection from pool: {e}")
+            # Try to reinitialize pool
+            self._pool = None
+            self._initialize_pool()
+            if self._pool:
+                try:
+                    return self._pool.get_connection()
+                except Error:
+                    return None
+            return None
+    
+    def ensure_connection(self):
+        """Ensure we can get a connection from the pool"""
+        connection = self._get_connection()
+        return connection is not None
+    
+    def _execute_query(self, query_func):
+        """Helper method to execute queries with proper connection handling"""
+        connection = self._get_connection()
+        if connection is None:
+            return None
+        
+        try:
+            result = query_func(connection)
+            return result
+        except Error as e:
+            print(f"Database error: {e}")
+            connection.rollback()
+            return None
+        finally:
+            if connection.is_connected():
+                connection.close()  # Return connection to pool
 
     
     def create_task(self, task):
         """Insert a new task into the tasks table and return its ID."""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
 
         try:
@@ -75,7 +151,7 @@ class DatabaseManager:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
-                        # If status is an enum, convert to its value
+            # If status is an enum, convert to its value
             status_value = (
                 task.status.value if hasattr(task.status, "value") else task.status
             )
@@ -99,21 +175,26 @@ class DatabaseManager:
                 task.subject,
             )
 
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, values)
-            self.connection.commit()
+            connection.commit()
             task_id = cursor.lastrowid
             cursor.close()
             return task_id
 
         except Error as e:
             print(f"Error creating task: {e}")
+            connection.rollback()
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
 
 
     def get_task(self, task_id: int) -> Optional[TaskResponse]:
         """Retrieve a single task by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
             
         query = """
@@ -124,7 +205,7 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, (task_id,))
             result = cursor.fetchone()
             cursor.close()
@@ -135,6 +216,9 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching task: {e}")
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def get_tasks(
         self,
@@ -145,7 +229,8 @@ class DatabaseManager:
         offset: int = 0,
     ) -> tuple[List[TaskResponse], int]:
         """Retrieve tasks with optional filters + pagination"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return [], 0
 
         # Base WHERE clause
@@ -168,13 +253,15 @@ class DatabaseManager:
         """
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(count_query, params)
             count_row = cursor.fetchone()
             total = count_row["total"] if count_row else 0
             cursor.close()
         except Error as e:
             print(f"Error counting tasks: {e}")
+            if connection.is_connected():
+                connection.close()
             return [], 0
 
         # 2) Get the actual page of results
@@ -190,7 +277,7 @@ class DatabaseManager:
         page_params = params + [limit, offset]
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, page_params)
             results = cursor.fetchall()
             cursor.close()
@@ -200,10 +287,14 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching tasks: {e}")
             return [], total
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     def update_task(self, task_id: int, updates: TaskUpdate) -> bool:
         """Update a task with new values"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         update_fields = []
@@ -226,6 +317,8 @@ class DatabaseManager:
             params.append(updates.priority)
         
         if not update_fields:
+            if connection.is_connected():
+                connection.close()
             return False
         
         update_fields.append("updated_at = %s")
@@ -239,41 +332,49 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, params)
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error updating task: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def delete_task(self, task_id: int) -> bool:
         """Delete a task by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         query = "DELETE FROM tasks WHERE task_id = %s"
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, (task_id,))
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error deleting task: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     # ========== TODO METHODS ==========
     
     def create_todo(self, todo: TodoCreate) -> Optional[int]:
         """Insert a new todo into the todos table and return its ID."""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
 
         try:
@@ -316,20 +417,25 @@ class DatabaseManager:
                 todo.subject,
             )
 
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, values)
-            self.connection.commit()
+            connection.commit()
             todo_id = cursor.lastrowid
             cursor.close()
             return todo_id
 
         except Error as e:
             print(f"Error creating todo: {e}")
+            connection.rollback()
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     def get_todo(self, todo_id: int) -> Optional[TodoResponse]:
         """Retrieve a single todo by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
             
         query = """
@@ -340,7 +446,7 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, (todo_id,))
             result = cursor.fetchone()
             cursor.close()
@@ -351,6 +457,9 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching todo: {e}")
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def get_todos(
         self,
@@ -361,7 +470,8 @@ class DatabaseManager:
         offset: int = 0,
     ) -> tuple[List[TodoResponse], int]:
         """Retrieve todos with optional filters + pagination"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return [], 0
 
         # Base WHERE clause
@@ -384,13 +494,15 @@ class DatabaseManager:
         """
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(count_query, params)
             count_row = cursor.fetchone()
             total = count_row["total"] if count_row else 0
             cursor.close()
         except Error as e:
             print(f"Error counting todos: {e}")
+            if connection.is_connected():
+                connection.close()
             return [], 0
 
         # 2) Get the actual page of results
@@ -406,7 +518,7 @@ class DatabaseManager:
         page_params = params + [limit, offset]
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, page_params)
             results = cursor.fetchall()
             cursor.close()
@@ -416,10 +528,14 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching todos: {e}")
             return [], total
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     def update_todo(self, todo_id: int, updates: TodoUpdate) -> bool:
         """Update a todo with new values"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         update_fields = []
@@ -442,6 +558,8 @@ class DatabaseManager:
             params.append(updates.priority)
         
         if not update_fields:
+            if connection.is_connected():
+                connection.close()
             return False
         
         update_fields.append("updated_at = %s")
@@ -455,41 +573,49 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, params)
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error updating todo: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def delete_todo(self, todo_id: int) -> bool:
         """Delete a todo by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         query = "DELETE FROM todos WHERE todo_id = %s"
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, (todo_id,))
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error deleting todo: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     # ========== FOLLOWUP METHODS ==========
     
     def create_followup(self, followup: FollowupCreate) -> Optional[int]:
         """Insert a new followup into the followups table and return its ID."""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
 
         try:
@@ -532,20 +658,25 @@ class DatabaseManager:
                 followup.subject,
             )
 
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, values)
-            self.connection.commit()
+            connection.commit()
             followup_id = cursor.lastrowid
             cursor.close()
             return followup_id
 
         except Error as e:
             print(f"Error creating followup: {e}")
+            connection.rollback()
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     def get_followup(self, followup_id: int) -> Optional[FollowupResponse]:
         """Retrieve a single followup by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return None
             
         query = """
@@ -556,7 +687,7 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, (followup_id,))
             result = cursor.fetchone()
             cursor.close()
@@ -567,6 +698,9 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching followup: {e}")
             return None
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def get_followups(
         self,
@@ -577,7 +711,8 @@ class DatabaseManager:
         offset: int = 0,
     ) -> tuple[List[FollowupResponse], int]:
         """Retrieve followups with optional filters + pagination"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return [], 0
 
         # Base WHERE clause
@@ -600,13 +735,15 @@ class DatabaseManager:
         """
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(count_query, params)
             count_row = cursor.fetchone()
             total = count_row["total"] if count_row else 0
             cursor.close()
         except Error as e:
             print(f"Error counting followups: {e}")
+            if connection.is_connected():
+                connection.close()
             return [], 0
 
         # 2) Get the actual page of results
@@ -622,7 +759,7 @@ class DatabaseManager:
         page_params = params + [limit, offset]
 
         try:
-            cursor = self.connection.cursor(dictionary=True)
+            cursor = connection.cursor(dictionary=True)
             cursor.execute(query, page_params)
             results = cursor.fetchall()
             cursor.close()
@@ -632,10 +769,14 @@ class DatabaseManager:
         except Error as e:
             print(f"Error fetching followups: {e}")
             return [], total
+        finally:
+            if connection.is_connected():
+                connection.close()
 
     def update_followup(self, followup_id: int, updates: FollowupUpdate) -> bool:
         """Update a followup with new values"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         update_fields = []
@@ -658,6 +799,8 @@ class DatabaseManager:
             params.append(updates.priority)
         
         if not update_fields:
+            if connection.is_connected():
+                connection.close()
             return False
         
         update_fields.append("updated_at = %s")
@@ -671,39 +814,47 @@ class DatabaseManager:
         """
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, params)
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error updating followup: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def delete_followup(self, followup_id: int) -> bool:
         """Delete a followup by ID"""
-        if not self.connection:
+        connection = self._get_connection()
+        if connection is None:
             return False
             
         query = "DELETE FROM followups WHERE followup_id = %s"
         
         try:
-            cursor = self.connection.cursor()
+            cursor = connection.cursor()
             cursor.execute(query, (followup_id,))
-            self.connection.commit()
+            connection.commit()
             success = cursor.rowcount > 0
             cursor.close()
             return success
         except Error as e:
             print(f"Error deleting followup: {e}")
-            self.connection.rollback()
+            connection.rollback()
             return False
+        finally:
+            if connection.is_connected():
+                connection.close()
     
     def close(self):
-        """Close database connection"""
-        if self.connection and self.connection.is_connected():
-            self.connection.close()
-            print("Database connection closed")
+        """Close connection pool (connections are managed by the pool)"""
+        # With connection pooling, we don't need to close individual connections
+        # The pool manages them. This method is kept for backward compatibility.
+        if self._pool:
+            print("Connection pool is active (connections managed by pool)")
             
