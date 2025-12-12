@@ -24,7 +24,7 @@ async def test_classification_sync():
     # Test 1: Fetch classifications
     print("\n1. Testing Classification Client...")
     print("-" * 70)
-    user_id_str = 'cloud_test_user_789'
+    user_id_str = '3aab3fba-9f4d-48ee-bee5-c1df257c33cc'  # Real user with classifications
     classifications = await classification_client.get_classifications(user_id=user_id_str)
     print(f"✅ Successfully fetched {len(classifications)} classifications for user: {user_id_str}")
     
