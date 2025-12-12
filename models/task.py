@@ -35,6 +35,7 @@ class TaskCreate(BaseModel):
     """Schema for creating a new task"""
     user_id: int
     source_msg_id: str  # UUID from integrations service
+    cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
     status: TaskStatus = TaskStatus.OPEN
     due_at: Optional[datetime] = None
@@ -49,6 +50,7 @@ class TaskResponse(BaseModel):
     task_id: int
     user_id: int
     source_msg_id: str  # UUID from integrations service
+    cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
     status: TaskStatus
     due_at: Optional[datetime]
@@ -109,6 +111,7 @@ class FollowupCreate(BaseModel):
     """Schema for creating a new followup"""
     user_id: int
     source_msg_id: str  # UUID from integrations service
+    cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
     status: TaskStatus = TaskStatus.OPEN
     due_at: Optional[datetime] = None
@@ -123,6 +126,7 @@ class FollowupResponse(BaseModel):
     followup_id: int
     user_id: int
     source_msg_id: str  # UUID from integrations service
+    cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
     status: TaskStatus
     due_at: Optional[datetime]

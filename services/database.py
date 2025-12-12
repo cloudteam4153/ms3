@@ -140,6 +140,7 @@ class DatabaseManager:
                 INSERT INTO tasks (
                     user_id,
                     source_msg_id,
+                    cls_id,
                     title,
                     status,
                     due_at,
@@ -148,7 +149,7 @@ class DatabaseManager:
                     sender,
                     subject
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
             # If status is an enum, convert to its value
@@ -166,6 +167,7 @@ class DatabaseManager:
             values = (
                 task.user_id,
                 task.source_msg_id,
+                task.cls_id,
                 task.title,
                 status_value or "open",
                 task.due_at,
@@ -198,7 +200,7 @@ class DatabaseManager:
             return None
             
         query = """
-        SELECT task_id, user_id, source_msg_id, title, status, due_at, 
+        SELECT task_id, user_id, source_msg_id, cls_id, title, status, due_at, 
                priority, message_type, sender, subject, created_at, updated_at
         FROM tasks
         WHERE task_id = %s
@@ -266,7 +268,7 @@ class DatabaseManager:
 
         # 2) Get the actual page of results
         query = f"""
-        SELECT task_id, user_id, source_msg_id, title, status, due_at,
+        SELECT task_id, user_id, source_msg_id, cls_id, title, status, due_at,
                priority, message_type, sender, subject, created_at, updated_at
         FROM tasks
         {where_clause}
@@ -623,6 +625,7 @@ class DatabaseManager:
                 INSERT INTO followups (
                     user_id,
                     source_msg_id,
+                    cls_id,
                     title,
                     status,
                     due_at,
@@ -631,7 +634,7 @@ class DatabaseManager:
                     sender,
                     subject
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
             # If status is an enum, convert to its value
@@ -649,6 +652,7 @@ class DatabaseManager:
             values = (
                 followup.user_id,
                 followup.source_msg_id,
+                followup.cls_id,
                 followup.title,
                 status_value or "open",
                 followup.due_at,
@@ -680,7 +684,7 @@ class DatabaseManager:
             return None
             
         query = """
-        SELECT followup_id, user_id, source_msg_id, title, status, due_at, 
+        SELECT followup_id, user_id, source_msg_id, cls_id, title, status, due_at, 
                priority, message_type, sender, subject, created_at, updated_at
         FROM followups
         WHERE followup_id = %s
@@ -748,7 +752,7 @@ class DatabaseManager:
 
         # 2) Get the actual page of results
         query = f"""
-        SELECT followup_id, user_id, source_msg_id, title, status, due_at,
+        SELECT followup_id, user_id, source_msg_id, cls_id, title, status, due_at,
                priority, message_type, sender, subject, created_at, updated_at
         FROM followups
         {where_clause}
