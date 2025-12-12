@@ -129,6 +129,72 @@ class DatabaseManager:
                 connection.close()  # Return connection to pool
 
     
+    def _build_filter_clause(self, filters: dict, table_name: str) -> tuple[str, list]:
+        """Build WHERE clause dynamically from filters dictionary"""
+        if not filters:
+            return "", []
+        
+        where_parts = []
+        params = []
+        
+        # Map filter keys to database column names
+        column_map = {
+            'user_id': 'user_id',
+            'task_id': 'task_id',
+            'todo_id': 'todo_id',
+            'followup_id': 'followup_id',
+            'cls_id': 'cls_id',
+            'classification_id': 'cls_id',  # Alias
+            'source_msg_id': 'source_msg_id',
+            'status': 'status',
+            'priority': 'priority',
+            'message_type': 'message_type',
+            'sender': 'sender',
+            'subject': 'subject',
+            'created_at': 'created_at',
+            'updated_at': 'updated_at',
+            'due_at': 'due_at',
+        }
+        
+        for key, value in filters.items():
+            if value is None:
+                continue
+                
+            db_column = column_map.get(key)
+            if not db_column:
+                continue  # Skip unknown filters
+            
+            # Handle different filter types
+            if isinstance(value, list):
+                # IN clause for list values
+                placeholders = ','.join(['%s'] * len(value))
+                where_parts.append(f"{db_column} IN ({placeholders})")
+                params.extend(value)
+            elif isinstance(value, dict):
+                # Range queries like {"gte": 3} or {"lte": 5}
+                if 'gte' in value:
+                    where_parts.append(f"{db_column} >= %s")
+                    params.append(value['gte'])
+                if 'lte' in value:
+                    where_parts.append(f"{db_column} <= %s")
+                    params.append(value['lte'])
+                if 'gt' in value:
+                    where_parts.append(f"{db_column} > %s")
+                    params.append(value['gt'])
+                if 'lt' in value:
+                    where_parts.append(f"{db_column} < %s")
+                    params.append(value['lt'])
+            else:
+                # Exact match
+                where_parts.append(f"{db_column} = %s")
+                params.append(value)
+        
+        where_clause = " AND ".join(where_parts)
+        if where_clause:
+            where_clause = "WHERE " + where_clause
+        
+        return where_clause, params
+
     def create_task(self, task):
         """Insert a new task into the tasks table and return its ID."""
         connection = self._get_connection()
@@ -165,7 +231,7 @@ class DatabaseManager:
             )
 
             values = (
-                task.user_id,
+                task.user_id,  # Now UUID string
                 task.source_msg_id,
                 task.cls_id,
                 task.title,
@@ -224,28 +290,17 @@ class DatabaseManager:
     
     def get_tasks(
         self,
-        user_id: int,
-        status: Optional[TaskStatus] = None,
-        min_priority: Optional[int] = None,
-        limit: int = 10,
+        filters: Optional[dict] = None,
+        limit: int = 100,
         offset: int = 0,
     ) -> tuple[List[TaskResponse], int]:
-        """Retrieve tasks with optional filters + pagination"""
+        """Retrieve tasks with dynamic filters + pagination"""
         connection = self._get_connection()
         if connection is None:
             return [], 0
 
-        # Base WHERE clause
-        where_clause = "WHERE user_id = %s"
-        params = [user_id]
-
-        if status:
-            where_clause += " AND status = %s"
-            params.append(status.value)
-
-        if min_priority:
-            where_clause += " AND priority >= %s"
-            params.append(min_priority)
+        # Build dynamic WHERE clause from filters
+        where_clause, params = self._build_filter_clause(filters or {}, "tasks")
 
         # 1) Get total count (for pagination metadata)
         count_query = f"""
@@ -272,7 +327,7 @@ class DatabaseManager:
                priority, message_type, sender, subject, created_at, updated_at
         FROM tasks
         {where_clause}
-        ORDER BY priority DESC, due_at ASC
+        ORDER BY priority DESC, due_at ASC, created_at DESC
         LIMIT %s OFFSET %s
         """
 
@@ -408,7 +463,7 @@ class DatabaseManager:
             )
 
             values = (
-                todo.user_id,
+                todo.user_id,  # Now UUID string
                 todo.source_msg_id,
                 todo.title,
                 status_value or "open",
@@ -465,28 +520,17 @@ class DatabaseManager:
     
     def get_todos(
         self,
-        user_id: int,
-        status: Optional[TaskStatus] = None,
-        min_priority: Optional[int] = None,
-        limit: int = 10,
+        filters: Optional[dict] = None,
+        limit: int = 100,
         offset: int = 0,
     ) -> tuple[List[TodoResponse], int]:
-        """Retrieve todos with optional filters + pagination"""
+        """Retrieve todos with dynamic filters + pagination"""
         connection = self._get_connection()
         if connection is None:
             return [], 0
 
-        # Base WHERE clause
-        where_clause = "WHERE user_id = %s"
-        params = [user_id]
-
-        if status:
-            where_clause += " AND status = %s"
-            params.append(status.value)
-
-        if min_priority:
-            where_clause += " AND priority >= %s"
-            params.append(min_priority)
+        # Build dynamic WHERE clause from filters
+        where_clause, params = self._build_filter_clause(filters or {}, "todos")
 
         # 1) Get total count (for pagination metadata)
         count_query = f"""
@@ -513,7 +557,7 @@ class DatabaseManager:
                priority, message_type, sender, subject, created_at, updated_at
         FROM todos
         {where_clause}
-        ORDER BY priority DESC, due_at ASC
+        ORDER BY priority DESC, due_at ASC, created_at DESC
         LIMIT %s OFFSET %s
         """
 
@@ -650,7 +694,7 @@ class DatabaseManager:
             )
 
             values = (
-                followup.user_id,
+                followup.user_id,  # Now UUID string
                 followup.source_msg_id,
                 followup.cls_id,
                 followup.title,
@@ -708,28 +752,17 @@ class DatabaseManager:
     
     def get_followups(
         self,
-        user_id: int,
-        status: Optional[TaskStatus] = None,
-        min_priority: Optional[int] = None,
-        limit: int = 10,
+        filters: Optional[dict] = None,
+        limit: int = 100,
         offset: int = 0,
     ) -> tuple[List[FollowupResponse], int]:
-        """Retrieve followups with optional filters + pagination"""
+        """Retrieve followups with dynamic filters + pagination"""
         connection = self._get_connection()
         if connection is None:
             return [], 0
 
-        # Base WHERE clause
-        where_clause = "WHERE user_id = %s"
-        params = [user_id]
-
-        if status:
-            where_clause += " AND status = %s"
-            params.append(status.value)
-
-        if min_priority:
-            where_clause += " AND priority >= %s"
-            params.append(min_priority)
+        # Build dynamic WHERE clause from filters
+        where_clause, params = self._build_filter_clause(filters or {}, "followups")
 
         # 1) Get total count (for pagination metadata)
         count_query = f"""
@@ -756,7 +789,7 @@ class DatabaseManager:
                priority, message_type, sender, subject, created_at, updated_at
         FROM followups
         {where_clause}
-        ORDER BY priority DESC, due_at ASC
+        ORDER BY priority DESC, due_at ASC, created_at DESC
         LIMIT %s OFFSET %s
         """
 

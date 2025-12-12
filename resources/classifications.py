@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @router.post("/webhook")
 async def process_classifications(
     messages: List[Dict[str, Any]],
-    user_id: int = Query(..., description="User ID for task/todo/followup ownership")
+    user_id: str = Query(..., description="User ID (UUID) for task/todo/followup ownership")
 ):
     """
     Webhook endpoint to receive classified messages from classification microservice.
@@ -79,7 +79,7 @@ async def process_classifications(
 
 @router.post("/sync")
 async def sync_classifications(
-    user_id: str = Query(..., description="User ID to sync classifications for (can be string UUID or integer)")
+    user_id: str = Query(..., description="User ID (UUID) to sync classifications for")
 ):
     """
     Pull classifications from ms4-classification service and create tasks/followups.
@@ -90,24 +90,15 @@ async def sync_classifications(
     3. For each classification with label 'followup', creates a followup
     4. Skips classifications with label 'noise'
     5. Associates each task/followup with msg_id, user_id, and cls_id
-    
-    Note: If user_id is a string UUID, it will be converted to an integer hash for database storage.
     """
     try:
-        # Convert string user_id to int for database (use deterministic hash)
-        # If it's already numeric, use it directly
-        try:
-            db_user_id = int(user_id)
-        except ValueError:
-            # Convert string UUID to consistent integer hash using MD5 (deterministic)
-            hash_obj = hashlib.md5(user_id.encode())
-            hash_hex = hash_obj.hexdigest()
-            db_user_id = int(hash_hex[:8], 16) % (10**9)  # Use first 8 hex chars, keep within int range
+        # user_id is now UUID string, use directly
+        db_user_id = user_id
         
         # Pull classifications from ms4
-        logger.info(f"Fetching classifications for user_id: {user_id} (db_user_id: {db_user_id})")
+        logger.info(f"Fetching classifications for user_id: {user_id}")
         classifications = await classification_client.get_classifications(
-            user_id=str(user_id)
+            user_id=user_id
         )
         
         if not classifications:

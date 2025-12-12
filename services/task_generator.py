@@ -25,7 +25,7 @@ class TaskListGenerator:
     def generate_task_list(
         self, 
         messages: List[Dict[str, Any]], 
-        user_id: int
+        user_id: str  # UUID
     ) -> List[TaskCreate]:
         """
         Main method to convert LLM output into task creation objects.

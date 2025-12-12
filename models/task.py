@@ -33,7 +33,7 @@ class IncomingMessage(BaseModel):
 
 class TaskCreate(BaseModel):
     """Schema for creating a new task"""
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
@@ -48,7 +48,7 @@ class TaskCreate(BaseModel):
 class TaskResponse(BaseModel):
     """Schema for task response"""
     task_id: int
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
@@ -72,7 +72,7 @@ class TaskUpdate(BaseModel):
 
 class TodoCreate(BaseModel):
     """Schema for creating a new todo"""
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus = TaskStatus.OPEN
@@ -86,7 +86,7 @@ class TodoCreate(BaseModel):
 class TodoResponse(BaseModel):
     """Schema for todo response"""
     todo_id: int
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     title: str
     status: TaskStatus
@@ -109,7 +109,7 @@ class TodoUpdate(BaseModel):
 
 class FollowupCreate(BaseModel):
     """Schema for creating a new followup"""
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str
@@ -124,7 +124,7 @@ class FollowupCreate(BaseModel):
 class FollowupResponse(BaseModel):
     """Schema for followup response"""
     followup_id: int
-    user_id: int
+    user_id: str  # UUID
     source_msg_id: str  # UUID from integrations service
     cls_id: Optional[str] = None  # Classification ID from ms4-classification service
     title: str

@@ -28,7 +28,7 @@ class ClassificationHandler:
     def process_classifications(
         self,
         messages: List[Dict[str, Any]],
-        user_id: int
+        user_id: str  # UUID
     ) -> Dict[str, List]:
         """
         Process a list of classified messages and create appropriate items.
