@@ -44,8 +44,18 @@ def run_migration(connection, sql_file):
         
         # Execute each statement
         for statement in statements:
-            if statement:
+            if not statement:
+                continue
+            try:
                 cursor.execute(statement)
+            except Error as e:
+                # Make migrations re-runnable by ignoring "already exists" style errors
+                # - 1060: Duplicate column name
+                # - 1061: Duplicate key name (index)
+                if getattr(e, "errno", None) in (1060, 1061):
+                    print(f"ℹ️  Skipping already-applied change: {e}")
+                    continue
+                raise
         
         connection.commit()
         cursor.close()
@@ -87,6 +97,7 @@ def main():
             tasks_migration = os.path.join(migrations_dir, 'create_tasks_table.sql')
             todos_migration = os.path.join(migrations_dir, 'create_todos_table.sql')
             followups_migration = os.path.join(migrations_dir, 'create_followups_table.sql')
+            cls_id_migration = os.path.join(migrations_dir, 'add_cls_id_to_tables.sql')
             uuid_migration = os.path.join(migrations_dir, 'alter_source_msg_id_to_uuid.sql')
             
             # Run migrations
@@ -95,6 +106,7 @@ def main():
             success &= run_migration(connection, tasks_migration)
             success &= run_migration(connection, todos_migration)
             success &= run_migration(connection, followups_migration)
+            success &= run_migration(connection, cls_id_migration)
             
             # Run UUID migration (alters existing tables if they have INT columns)
             print("\nUpdating source_msg_id columns to support UUIDs...")

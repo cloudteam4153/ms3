@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS todos (
     todo_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     source_msg_id VARCHAR(36) NOT NULL COMMENT 'Associates todo with specific message (UUID)',
+    cls_id VARCHAR(36) NULL COMMENT 'Classification ID from ms4-classification service (UUID)',
     title VARCHAR(255) NOT NULL,
     status ENUM('open', 'done') DEFAULT 'open',
     due_at DATETIME NULL,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS todos (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_id (user_id),
     INDEX idx_source_msg_id (source_msg_id),
+    INDEX idx_cls_id (cls_id),
     INDEX idx_status (status),
     INDEX idx_priority (priority),
     INDEX idx_due_at (due_at)
